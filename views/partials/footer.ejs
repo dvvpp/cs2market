@@ -1,0 +1,14 @@
+</div><!-- /page-wrapper -->
+
+<div id="toast" class="toast"></div>
+
+<script src="/js/app.js"></script>
+<script>
+    // Подсветка активной ссылки
+    const path = window.location.pathname;
+    document.querySelectorAll('.nav-links a').forEach(a => {
+        if (a.getAttribute('href') === path) a.classList.add('active');
+    });
+</script>
+</body>
+</html>

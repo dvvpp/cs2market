@@ -1,0 +1,119 @@
+<%- include('partials/header') %>
+
+<div class="container">
+    <div class="hero" style="padding: 2.5rem 0 1.5rem; text-align:left;">
+        <h1 class="hero-title" style="font-size:2rem; margin-bottom:0.5rem;">👥 Пользователи</h1>
+        <p class="text-sec">Детальная информация по всем участникам платформы</p>
+    </div>
+
+    <!-- Краткая статистика -->
+    <div class="stats-grid mb-3" id="user-stats">
+        <div class="stat-card animate-in stagger-1">
+            <span class="stat-icon">👑</span>
+            <div class="stat-value" id="us-richest">—</div>
+            <div class="stat-label">Топ по балансу</div>
+        </div>
+        <div class="stat-card animate-in stagger-2">
+            <span class="stat-icon">🏆</span>
+            <div class="stat-value" id="us-trader">—</div>
+            <div class="stat-label">Топ по сделкам</div>
+        </div>
+        <div class="stat-card animate-in stagger-3">
+            <span class="stat-icon">💎</span>
+            <div class="stat-value" id="us-inv">—</div>
+            <div class="stat-label">Топ инвентарь (₽)</div>
+        </div>
+    </div>
+
+    <!-- Детальная таблица -->
+    <div class="card animate-in">
+        <div class="section-header" style="border:none; margin-bottom:1rem;">
+            <div class="section-title">Все пользователи</div>
+            <input type="text" id="user-search" class="form-control" style="max-width:220px;"
+                   placeholder="Поиск по имени...">
+        </div>
+        <div id="users-table-wrap" class="table-wrap">
+            <div class="loading"><div class="spinner"></div>Загрузка...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+let allUsers = [];
+
+document.getElementById('user-search').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    const filtered = allUsers.filter(u => u.Username.toLowerCase().includes(q));
+    renderUsersTable(filtered);
+});
+
+async function loadUsers() {
+    try {
+        allUsers = await apiFetch('/api/users-detail');
+
+        if (allUsers.length) {
+            const sorted_bal = [...allUsers].sort((a,b) => b.Balance - a.Balance);
+            const sorted_tr  = [...allUsers].sort((a,b) => b.TotalTrades - a.TotalTrades);
+            const sorted_inv = [...allUsers].sort((a,b) => b.InventoryValue - a.InventoryValue);
+
+            document.getElementById('us-richest').textContent = sorted_bal[0]?.Username || '—';
+            document.getElementById('us-trader').textContent  = sorted_tr[0]?.Username  || '—';
+            document.getElementById('us-inv').textContent     = fmtMoney(sorted_inv[0]?.InventoryValue || 0) + ' ₽';
+        }
+
+        renderUsersTable(allUsers);
+    } catch(e) {
+        document.getElementById('users-table-wrap').innerHTML = errHtml(e);
+    }
+}
+
+function renderUsersTable(users) {
+    if (!users.length) {
+        document.getElementById('users-table-wrap').innerHTML = `
+            <div class="loading">Нет данных</div>`;
+        return;
+    }
+    document.getElementById('users-table-wrap').innerHTML = `
+        <table>
+            <thead><tr>
+                <th>#</th>
+                <th onclick="sortUsers('Username')">Пользователь ↕</th>
+                <th onclick="sortUsers('Balance')">Баланс ↕</th>
+                <th onclick="sortUsers('TotalTrades')">Сделок ↕</th>
+                <th onclick="sortUsers('InventoryValue')">Инвентарь ↕</th>
+                <th onclick="sortUsers('ActiveListings')">Объявлений ↕</th>
+                <th onclick="sortUsers('AvgSalePrice')">Ср. сделка ↕</th>
+            </tr></thead>
+            <tbody>${users.map((u, i) => `
+                <tr>
+                    <td class="text-muted text-sm">${i+1}</td>
+                    <td>
+                        <div class="fw-600">${esc(u.Username)}</div>
+                        <div class="text-sm text-muted">#${u.UserID}</div>
+                    </td>
+                    <td class="td-price">${fmtMoney(u.Balance)} ₽</td>
+                    <td class="text-accent fw-600">${fmt(u.TotalTrades)}</td>
+                    <td class="text-blue">${fmtMoney(u.InventoryValue)} ₽</td>
+                    <td class="text-sec">${fmt(u.ActiveListings)}</td>
+                    <td class="text-sec">${fmtMoney(u.AvgSalePrice)} ₽</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+}
+
+let sortDir = {};
+function sortUsers(field) {
+    sortDir[field] = !sortDir[field];
+    const dir = sortDir[field] ? 1 : -1;
+    const sorted = [...allUsers].sort((a,b) => {
+        const av = a[field] || 0, bv = b[field] || 0;
+        if (typeof av === 'string') return av.localeCompare(bv) * dir;
+        return (av - bv) * dir;
+    });
+    renderUsersTable(sorted);
+}
+
+loadUsers();
+</script>
+
+<%- include('partials/footer') %>
