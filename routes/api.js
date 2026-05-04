@@ -1,12 +1,24 @@
-// routes/api.js — все API-эндпоинты (все 10 запросов из БД)
 const express = require('express');
 const router = express.Router();
 const { sql, query } = require('../db');
-
-// ── ЗАПРОС 1: Общая статистика платформы ─────────────────────────────────────
+ 
+// Хелпер — запрос с логом времени
+async function tquery(name, q, params = {}) {
+    const t = Date.now();
+    console.log(`→ [${name}] запрос...`);
+    try {
+        const r = await query(q, params);
+        console.log(`✅ [${name}] готово за ${Date.now()-t}ms, строк: ${r.recordset.length}`);
+        return r;
+    } catch(e) {
+        console.error(`❌ [${name}] ошибка за ${Date.now()-t}ms:`, e.message);
+        throw e;
+    }
+}
+ 
 router.get('/stats', async (req, res) => {
     try {
-        const result = await query(`
+        const r = await tquery('stats', `
             SELECT 
                 (SELECT COUNT(*) FROM Users) AS TotalUsers,
                 (SELECT COUNT(*) FROM Skins) AS TotalSkins,
@@ -14,17 +26,13 @@ router.get('/stats', async (req, res) => {
                 (SELECT COUNT(*) FROM Trades WHERE TradeStatus = 'Completed') AS CompletedTrades,
                 (SELECT ISNULL(SUM(FinalPrice), 0) FROM Trades WHERE TradeStatus = 'Completed') AS TotalVolume
         `);
-        res.json(result.recordset[0]);
-    } catch (err) {
-        console.error('stats error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset[0]);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ── ЗАПРОС 2: Топ 5 самых дорогих активных объявлений ────────────────────────
+ 
 router.get('/top-listings', async (req, res) => {
     try {
-        const result = await query(`
+        const r = await tquery('top-listings', `
             SELECT TOP 5 L.ListingID, S.SkinName, S.WeaponName, S.Quality, 
                          L.Price, U.Username AS SellerName
             FROM Listings L
@@ -33,32 +41,24 @@ router.get('/top-listings', async (req, res) => {
             WHERE L.Status = 'Active'
             ORDER BY L.Price DESC
         `);
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('top-listings error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ── ЗАПРОС 3: Топ 5 пользователей по количеству сделок ───────────────────────
+ 
 router.get('/top-users', async (req, res) => {
     try {
-        const result = await query(`
+        const r = await tquery('top-users', `
             SELECT TOP 5 U.UserID, U.Username, U.TotalTrades, U.Balance,
                 (SELECT COUNT(*) FROM Listings WHERE SellerID = U.UserID AND Status = 'Active') AS ActiveListings
             FROM Users U ORDER BY U.TotalTrades DESC
         `);
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('top-users error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ── ЗАПРОС 4: Статистика продаж по категориям ────────────────────────────────
+ 
 router.get('/categories', async (req, res) => {
     try {
-        const result = await query(`
+        const r = await tquery('categories', `
             SELECT C.CategoryName,
                 COUNT(T.TradeID) AS SalesCount,
                 ISNULL(SUM(T.FinalPrice), 0) AS TotalRevenue,
@@ -70,17 +70,13 @@ router.get('/categories', async (req, res) => {
             GROUP BY C.CategoryID, C.CategoryName
             ORDER BY TotalRevenue DESC
         `);
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('categories error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ── ЗАПРОС 5: Статистика по качеству скинов ──────────────────────────────────
+ 
 router.get('/quality-stats', async (req, res) => {
     try {
-        const result = await query(`
+        const r = await tquery('quality-stats', `
             SELECT S.Quality,
                 COUNT(DISTINCT S.SkinID) AS TotalSkins,
                 COUNT(T.TradeID) AS SalesCount,
@@ -92,53 +88,42 @@ router.get('/quality-stats', async (req, res) => {
             GROUP BY S.Quality
             ORDER BY AvgSalePrice DESC
         `);
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('quality-stats error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ── ЗАПРОС 6: Динамика продаж за 14 дней ─────────────────────────────────────
+ 
 router.get('/sales-dynamics', async (req, res) => {
     try {
-        const result = await query(`
+        const r = await tquery('sales-dynamics', `
             SELECT CAST(T.TradeDate AS DATE) AS TradeDay,
                 COUNT(T.TradeID) AS SalesCount,
                 SUM(T.FinalPrice) AS DailyRevenue
             FROM Trades T
-            WHERE T.TradeStatus = 'Completed' AND T.TradeDate >= DATEADD(day, -14, GETDATE())
+            WHERE T.TradeStatus = 'Completed'
+              AND T.TradeDate >= DATEADD(day, -14, GETDATE())
             GROUP BY CAST(T.TradeDate AS DATE)
             ORDER BY TradeDay ASC
         `);
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('sales-dynamics error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ── ЗАПРОС 7: Пользователи с балансом выше среднего ──────────────────────────
+ 
 router.get('/rich-users', async (req, res) => {
     try {
-        const result = await query(`
-            DECLARE @AvgBalance DECIMAL(12,2);
-            SELECT @AvgBalance = AVG(Balance) FROM Users;
-            SELECT UserID, Username, Balance, TotalTrades, 
-                   Balance - @AvgBalance AS DifferenceFromAvg
-            FROM Users WHERE Balance > @AvgBalance ORDER BY Balance DESC
+        const r = await tquery('rich-users', `
+            SELECT UserID, Username, Balance, TotalTrades,
+                Balance - AVG(Balance) OVER () AS DifferenceFromAvg
+            FROM Users
+            WHERE Balance > (SELECT AVG(Balance) FROM Users)
+            ORDER BY Balance DESC
         `);
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('rich-users error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ── ЗАПРОС 8: Самые популярные скины ─────────────────────────────────────────
+ 
 router.get('/popular-skins', async (req, res) => {
     try {
-        const result = await query(`
+        const r = await tquery('popular-skins', `
             SELECT TOP 5 S.SkinName, S.WeaponName, S.Quality,
                 COUNT(T.TradeID) AS TimesSold,
                 AVG(T.FinalPrice) AS AvgSoldPrice
@@ -149,40 +134,41 @@ router.get('/popular-skins', async (req, res) => {
             GROUP BY S.SkinID, S.SkinName, S.WeaponName, S.Quality, S.MarketPrice
             ORDER BY TimesSold DESC
         `);
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('popular-skins error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ── ЗАПРОС 9: Детальная информация по пользователям ──────────────────────────
+ 
 router.get('/users-detail', async (req, res) => {
     try {
-        const result = await query(`
-            SELECT U.UserID, U.Username, U.Balance, U.TotalTrades,
-                dbo.fn_GetUserInventoryValue(U.UserID) AS InventoryValue,
-                dbo.fn_GetUserActiveListingsCount(U.UserID) AS ActiveListings,
-                dbo.fn_GetUserAvgTradePrice(U.UserID, 1) AS AvgSalePrice
-            FROM Users U 
-            ORDER BY (dbo.fn_GetUserInventoryValue(U.UserID) + U.Balance) DESC
+        const r = await tquery('users-detail', `
+            SELECT
+                U.UserID, U.Username, U.Balance, U.TotalTrades,
+                ISNULL((
+                    SELECT SUM(S.MarketPrice) FROM UserInventory UI
+                    JOIN Skins S ON UI.SkinID = S.SkinID
+                    WHERE UI.UserID = U.UserID
+                ), 0) AS InventoryValue,
+                ISNULL((
+                    SELECT COUNT(*) FROM Listings L
+                    WHERE L.SellerID = U.UserID AND L.Status = 'Active'
+                ), 0) AS ActiveListings,
+                ISNULL((
+                    SELECT AVG(T.FinalPrice) FROM Trades T
+                    WHERE T.SellerID = U.UserID AND T.TradeStatus = 'Completed'
+                ), 0) AS AvgSalePrice
+            FROM Users U
+            ORDER BY U.Balance DESC
         `);
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('users-detail error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ── ЗАПРОС 10: Полная информация по активным объявлениям ─────────────────────
+ 
 router.get('/listings', async (req, res) => {
     try {
-        // Параметры фильтрации
         const { quality, minPrice, maxPrice, search, sort } = req.query;
-
         let whereExtra = '';
         const params = {};
-
+ 
         if (quality && quality !== 'all') {
             whereExtra += ` AND S.Quality = @quality`;
             params.quality = { type: sql.NVarChar, value: quality };
@@ -199,16 +185,15 @@ router.get('/listings', async (req, res) => {
             whereExtra += ` AND (S.SkinName LIKE @search OR S.WeaponName LIKE @search)`;
             params.search = { type: sql.NVarChar, value: `%${search}%` };
         }
-
+ 
         const orderMap = {
-            'price_asc': 'L.Price ASC',
+            'price_asc':  'L.Price ASC',
             'price_desc': 'L.Price DESC',
-            'wear': 'S.FloatValue ASC',
-            'name': 'S.SkinName ASC',
+            'wear':       'S.FloatValue ASC',
+            'name':       'S.SkinName ASC',
         };
-        const orderBy = orderMap[sort] || 'L.Price DESC';
-
-        const result = await query(`
+ 
+        const r = await tquery('listings', `
             SELECT L.ListingID, S.SkinName, S.WeaponName, S.Quality, S.FloatValue,
                 CASE 
                     WHEN S.FloatValue < 0.07 THEN 'Excellent'
@@ -227,13 +212,10 @@ router.get('/listings', async (req, res) => {
             JOIN Skins S ON L.SkinID = S.SkinID
             JOIN Users U ON L.SellerID = U.UserID
             WHERE L.Status = 'Active' ${whereExtra}
-            ORDER BY ${orderBy}
+            ORDER BY ${orderMap[sort] || 'L.Price DESC'}
         `, params);
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('listings error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
+        res.json(r.recordset);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
+ 
 module.exports = router;
