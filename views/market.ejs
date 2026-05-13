@@ -52,7 +52,6 @@
         </div>
     </div>
 
-    <!-- Переключатель вид -->
     <div class="section-header">
         <div class="section-title" id="market-count">Объявления</div>
         <div class="flex gap-1">
@@ -61,7 +60,6 @@
         </div>
     </div>
 
-    <!-- Контент -->
     <div id="market-content">
         <div class="loading"><div class="spinner"></div>Загрузка объявлений...</div>
     </div>
@@ -73,8 +71,8 @@ let allListings = [];
 
 function setView(v) {
     currentView = v;
-    document.getElementById('view-grid').className  = `btn btn-sm ${v==='grid'  ? 'btn-secondary' : 'btn-outline'}`;
-    document.getElementById('view-table').className = `btn btn-sm ${v==='table' ? 'btn-secondary' : 'btn-outline'}`;
+    document.getElementById('view-grid').className = `btn btn-sm ${v === 'grid' ? 'btn-secondary' : 'btn-outline'}`;
+    document.getElementById('view-table').className = `btn btn-sm ${v === 'table' ? 'btn-secondary' : 'btn-outline'}`;
     renderListings(allListings);
 }
 
@@ -87,7 +85,6 @@ function resetFilters() {
     loadMarket();
 }
 
-// Автоматический поиск при вводе (дебаунс)
 let searchTimeout;
 document.getElementById('f-search').addEventListener('input', () => {
     clearTimeout(searchTimeout);
@@ -96,19 +93,37 @@ document.getElementById('f-search').addEventListener('input', () => {
 
 async function loadMarket() {
     document.getElementById('market-content').innerHTML = '<div class="loading"><div class="spinner"></div>Загрузка...</div>';
+    
     const params = new URLSearchParams({
-        quality:  document.getElementById('f-quality').value,
+        quality: document.getElementById('f-quality').value,
         minPrice: document.getElementById('f-min').value,
         maxPrice: document.getElementById('f-max').value,
-        search:   document.getElementById('f-search').value,
-        sort:     document.getElementById('f-sort').value,
+        search: document.getElementById('f-search').value,
+        sort: document.getElementById('f-sort').value,
     });
+    
     try {
-        allListings = await apiFetch('/api/listings?' + params);
+        console.log('Запрос к API:', '/api/listings?' + params);
+        const response = await fetch('/api/listings?' + params);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('Получено данных:', data);
+        
+        allListings = data;
         document.getElementById('market-count').textContent = `Найдено: ${allListings.length} объявлений`;
         renderListings(allListings);
     } catch(e) {
-        document.getElementById('market-content').innerHTML = errHtml(e);
+        console.error('Ошибка:', e);
+        document.getElementById('market-content').innerHTML = `
+            <div class="loading" style="flex-direction:column; gap:8px; color:var(--accent3);">
+                <span>❌ Ошибка загрузки</span>
+                <span class="text-sm">${e.message}</span>
+                <button class="btn btn-sm btn-secondary" onclick="loadMarket()">Повторить</button>
+            </div>`;
     }
 }
 
@@ -116,7 +131,7 @@ function renderListings(items) {
     if (!items.length) {
         document.getElementById('market-content').innerHTML = `
             <div class="loading" style="flex-direction:column; gap:8px;">
-                <span style="font-size:3rem;">🔍</span>
+                <span>🔍</span>
                 <span>Объявления не найдены</span>
             </div>`;
         return;
@@ -129,22 +144,27 @@ function renderListings(items) {
         document.getElementById('market-content').innerHTML = `
             <div class="table-wrap">
                 <table>
-                    <thead><tr>
-                        <th>Скин</th><th>Оружие</th><th>Качество</th>
-                        <th>Float</th><th>Износ</th><th>Цена</th>
-                        <th>Рынок</th><th>Продавец</th>
-                    </tr></thead>
+                    <thead>
+                        <tr>
+                            <th>Скин</th><th>Оружие</th><th>Качество</th>
+                            <th>Float</th><th>Износ</th><th>Цена</th>
+                            <th>Рынок</th><th>Продавец</th>
+                            <th>Действие</th>
+                        </tr>
+                    </thead>
                     <tbody>${items.map(l => `
                         <tr>
-                            <td class="fw-600">${esc(l.SkinName)}</td>
-                            <td class="text-sec">${esc(l.WeaponName||'')}</td>
-                            <td>${qualityBadge(l.Quality)}</td>
-                            <td class="td-mono text-sec">${l.FloatValue!=null ? parseFloat(l.FloatValue).toFixed(4) : '—'}</td>
-                            <td>${wearBadge(l.WearRating)}</td>
-                            <td class="td-price">${fmtMoney(l.Price)} ₽</td>
-                            <td class="${priceCls(l.PriceRating)}">${esc(l.PriceRating||'')}</td>
-                            <td class="text-sec text-sm">${esc(l.SellerName)}</td>
-                        </tr>`).join('')}
+                            <td class="fw-600">${escapeHtml(l.SkinName)}</td>
+                            <td class="text-sec">${escapeHtml(l.WeaponName || '')}</td>
+                            <td>${getQualityBadge(l.Quality)}</td>
+                            <td class="td-mono text-sec">${l.FloatValue != null ? parseFloat(l.FloatValue).toFixed(4) : '—'}</td>
+                            <td>${getWearBadge(l.WearRating)}</td>
+                            <td class="td-price">${formatMoney(l.Price)} ₽</td>
+                            <td class="${getPriceClass(l.PriceRating)}">${escapeHtml(l.PriceRating || '')}</td>
+                            <td class="text-sec text-sm">${escapeHtml(l.SellerName)}</td>
+                            '<td><button class="btn btn-sm btn-primary" onclick="buySkin(' + l.ListingID + ', 1, ' + l.Price + ', \'' + escapeHtml(l.SkinName) + '\')">Купить</button></td>'
+                        </tr>
+                    `).join('')}
                     </tbody>
                 </table>
             </div>`;
@@ -154,45 +174,99 @@ function renderListings(items) {
 function skinCard(l) {
     const float = l.FloatValue != null ? parseFloat(l.FloatValue) : 0.5;
     const wearPct = (float * 100).toFixed(0);
+    
+    // Фото скина (если есть, иначе заглушка)
+    const skinImage = l.ImageURL || 'https://via.placeholder.com/360x200/1e2d45/7a8aa8?text=CS2+Skin';
+    
     return `
     <div class="skin-card animate-in">
         <div class="skin-card-header">
-            <div class="skin-placeholder">🔫</div>
+            <img src="${skinImage}" 
+                 alt="${escapeHtml(l.SkinName)}"
+                 class="skin-image"
+                 onerror="this.src='https://via.placeholder.com/360x200/1e2d45/7a8aa8?text=No+Image'">
             <div class="skin-wear-bar">
                 <div class="skin-wear-fill" style="width:${wearPct}%"></div>
             </div>
         </div>
         <div class="skin-card-body">
-            <div class="skin-name" title="${esc(l.SkinName)}">${esc(l.SkinName)}</div>
-            <div class="skin-weapon">${esc(l.WeaponName||'Unknown')}</div>
+            <div class="skin-name" title="${escapeHtml(l.SkinName)}">${escapeHtml(l.SkinName)}</div>
+            <div class="skin-weapon">${escapeHtml(l.WeaponName || 'Unknown')}</div>
             <div class="skin-meta">
-                ${qualityBadge(l.Quality)}
+                ${getQualityBadge(l.Quality)}
                 <span class="skin-float">float: ${float.toFixed(4)}</span>
             </div>
-            <div class="${priceCls(l.PriceRating)}" style="font-size:0.72rem;">${esc(l.PriceRating||'')}</div>
+            <div class="${getPriceClass(l.PriceRating)}" style="font-size:0.72rem;">${escapeHtml(l.PriceRating || '')}</div>
         </div>
         <div class="skin-card-footer">
-            <div class="skin-price">${fmtMoney(l.Price)} ₽</div>
-            <div class="skin-seller">@${esc(l.SellerName)}</div>
+            <div class="skin-price">${formatMoney(l.Price)} ₽</div>
+            <button class="btn btn-sm btn-primary" onclick="buySkin(${l.ListingID}, 1, ${l.Price}, '${escapeHtml(l.SkinName)}')">Купить</button>
         </div>
     </div>`;
 }
 
-function wearBadge(w) {
+function getWearBadge(w) {
     const map = {
         'Excellent': 'text-green', 'Good': 'text-blue',
-        'Average':   'text-accent', 'Poor': 'text-red'
+        'Average': 'text-accent', 'Poor': 'text-red'
     };
-    return `<span class="${map[w]||'text-sec'} text-sm fw-600">${w||'—'}</span>`;
+    return `<span class="${map[w] || 'text-sec'} text-sm fw-600">${w || '—'}</span>`;
 }
 
-function priceCls(p) {
+function getPriceClass(p) {
     if (p === 'Below Market') return 'price-below';
     if (p === 'Above Market') return 'price-above';
     return 'price-market';
 }
 
+function getQualityBadge(q) {
+    if (!q) return '<span class="quality-badge">—</span>';
+    const short = {
+        'Factory New': 'FN', 'Minimal Wear': 'MW', 'Field-Tested': 'FT',
+        'Well-Worn': 'WW', 'Battle-Scarred': 'BS'
+    }[q] || q.substring(0, 2).toUpperCase();
+    const cls = 'quality-' + short;
+    return `<span class="quality-badge ${cls}" title="${escapeHtml(q)}">${short}</span>`;
+}
+
+function formatMoney(n) {
+    if (n == null) return '0';
+    return Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 loadMarket();
+// ─── Покупка скина ───────────────────────────────────────────
+async function buySkin(listingId, buyerId, price, skinName) {
+    if (!confirm(`Подтвердите покупку "${skinName}" за ${formatMoney(price)} ₽?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/buy/${listingId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ buyerId: buyerId })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert(`✅ ${result.message}\nСписано: ${formatMoney(result.price)} ₽\nКомиссия: ${formatMoney(result.commission)} ₽`);
+            loadUserBalance(); // Обновляем баланс
+            loadMarket(); // Обновляем маркет
+        } else {
+            alert(`❌ Ошибка: ${result.error}`);
+        }
+    } catch(err) {
+        console.error('Ошибка покупки:', err);
+        alert(`❌ Ошибка: ${err.message}`);
+    }
+}
 </script>
 
 <%- include('partials/footer') %>

@@ -195,19 +195,20 @@ router.get('/listings', async (req, res) => {
  
         const r = await tquery('listings', `
             SELECT L.ListingID, S.SkinName, S.WeaponName, S.Quality, S.FloatValue,
-                CASE 
-                    WHEN S.FloatValue < 0.07 THEN 'Excellent'
-                    WHEN S.FloatValue < 0.15 THEN 'Good'
-                    WHEN S.FloatValue < 0.38 THEN 'Average'
-                    ELSE 'Poor'
-                END AS WearRating,
-                L.Price, U.Username AS SellerName,
-                CASE 
-                    WHEN L.Price <= S.MarketPrice * 0.9 THEN 'Below Market'
-                    WHEN L.Price >= S.MarketPrice * 1.1 THEN 'Above Market'
-                    ELSE 'Market Price'
-                END AS PriceRating,
-                S.MarketPrice
+                   S.ImageURL,
+                   CASE 
+                       WHEN S.FloatValue < 0.07 THEN 'Excellent'
+                       WHEN S.FloatValue < 0.15 THEN 'Good'
+                       WHEN S.FloatValue < 0.38 THEN 'Average'
+                       ELSE 'Poor'
+                   END AS WearRating,
+                   L.Price, U.Username AS SellerName,
+                   CASE 
+                       WHEN L.Price <= S.MarketPrice * 0.9 THEN 'Below Market'
+                       WHEN L.Price >= S.MarketPrice * 1.1 THEN 'Above Market'
+                       ELSE 'Market Price'
+                   END AS PriceRating,
+                   S.MarketPrice
             FROM Listings L
             JOIN Skins S ON L.SkinID = S.SkinID
             JOIN Users U ON L.SellerID = U.UserID
@@ -216,6 +217,104 @@ router.get('/listings', async (req, res) => {
         `, params);
         res.json(r.recordset);
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── НОВЫЕ ЭНДПОИНТЫ ДЛЯ ПОКУПКИ И БАЛАНСА ───────────────────
+
+// Баланс пользователя
+router.get('/user/:userId/balance', async (req, res) => {
+    const { userId } = req.params;
+    
+    try {
+        const result = await query(`
+            SELECT UserID, Username, Balance 
+            FROM Users 
+            WHERE UserID = @userId
+        `, {
+            userId: { type: sql.Int, value: parseInt(userId) }
+        });
+        
+        if (result.recordset[0]) {
+            res.json(result.recordset[0]);
+        } else {
+            res.status(404).json({ error: 'Пользователь не найден' });
+        }
+    } catch (err) {
+        console.error('❌ Ошибка получения баланса:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// История покупок пользователя
+router.get('/user/:userId/purchase-history', async (req, res) => {
+    const { userId } = req.params;
+    
+    try {
+        const result = await query(`
+            SELECT 
+                T.TradeID,
+                T.TradeDate,
+                T.FinalPrice AS Price,
+                S.SkinName,
+                S.WeaponName,
+                S.Quality,
+                U.Username AS SellerName
+            FROM Trades T
+            JOIN Listings L ON T.ListingID = L.ListingID
+            JOIN Skins S ON L.SkinID = S.SkinID
+            JOIN Users U ON T.SellerID = U.UserID
+            WHERE T.BuyerID = @userId AND T.TradeStatus = 'Completed'
+            ORDER BY T.TradeDate DESC
+        `, {
+            userId: { type: sql.Int, value: parseInt(userId) }
+        });
+        
+        res.json(result.recordset);
+    } catch (err) {
+        console.error('❌ Ошибка истории покупок:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Покупка скина
+router.post('/buy/:listingId', async (req, res) => {
+    const { listingId } = req.params;
+    const { buyerId } = req.body;
+    
+    if (!buyerId) {
+        return res.status(400).json({ error: 'Не указан ID покупателя' });
+    }
+    
+    try {
+        const result = await query(`
+            DECLARE @Result TABLE (
+                Message NVARCHAR(200),
+                Price DECIMAL(12,2),
+                Commission DECIMAL(12,2),
+                SellerReceived DECIMAL(12,2)
+            );
+            
+            INSERT INTO @Result
+            EXEC pr_BuySkin @ListingID = @listingId, @BuyerID = @buyerId;
+            
+            SELECT * FROM @Result;
+        `, {
+            listingId: { type: sql.Int, value: parseInt(listingId) },
+            buyerId: { type: sql.Int, value: parseInt(buyerId) }
+        });
+        
+        res.json({ 
+            success: true, 
+            message: result.recordset[0]?.Message || 'Покупка успешно совершена!',
+            price: result.recordset[0]?.Price,
+            commission: result.recordset[0]?.Commission,
+            sellerReceived: result.recordset[0]?.SellerReceived
+        });
+        
+    } catch (err) {
+        console.error('❌ Ошибка покупки:', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
  
 module.exports = router;
